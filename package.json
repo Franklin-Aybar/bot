@@ -1,14 +1,14 @@
 {
-  "name": "bot-chipeo-247",
+  "name": "bot-chipeo-joki",
   "version": "1.0.0",
-  "description": "Bot de música 24/7 de alta fidelidad",
+  "description": "Bot de música 24/7 con Joki",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1",
-    "kazagumo": "^3.0.3",
-    "shoukaku": "^4.0.0"
+    "joki-music": "^1.1.5",
+    "express": "^4.19.2"
   }
 }
