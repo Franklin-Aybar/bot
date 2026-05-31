@@ -1,139 +1,183 @@
-const { Client, GatewayIntentBits } = require('discord.js');
-const { Connectors } = require('shoukaku');
-const { Kazagumo } = require('kazagumo');
+const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes } = require('discord.js');
+const { Joki } = require('joki-music');
+const express = require('express');
 
-// Configuración del cliente con los Intents necesarios para canales de voz y mensajes
+const TOKEN = process.env.TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+
+// ── Servidor Express para Render (Evita el Port Timeout) ──
+const app = express();
+app.get('/', (req, res) => res.send('✅ Joki Music Engine Online'));
+app.listen(process.env.PORT || 3000, () => console.log('✅ Servidor HTTP iniciado'));
+
+// ── Cliente de Discord ──
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildVoiceStates
+        GatewayIntentBits.MessageContent
     ]
 });
 
-// Lista de Nodos Lavalink públicos actualizados
-const Nodes = [
-    {
-        name: 'Node-Primary',
-        url: 'lavalink.cor0.gay:443',
-        auth: 'youshallnotpass',
-        secure: true
-    },
-    {
-        name: 'Node-Secondary',
-        url: 'lavalink.juice-host.xyz:443',
-        auth: 'youshallnotpass',
-        secure: true
+// ── Configuración de Joki 24/7 ──
+const joki = new Joki(client, {
+    leaveOnEmpty: false,     // No se sale si se van los usuarios
+    leaveOnFinish: false,    // No se sale si se acaba la lista de canciones
+    leaveOnStop: false,      // No se sale si detienen la música
+    defaultVolume: 100
+});
+
+// ── Eventos de Audio de Joki ──
+joki.on('trackStart', (player, track) => {
+    const channel = client.channels.cache.get(player.textChannelId);
+    if (channel) {
+        channel.send({
+            embeds: [
+                new EmbedBuilder()
+                    .setColor('#2ECC71')
+                    .setDescription(`🔊 **Reproduciendo ahora:** [${track.title}](${track.url})`)
+                    .setThumbnail(track.thumbnail || null)
+                    .setFooter({ text: `⏱ Duración: ${track.duration}  •  👤 Pedida por: ${track.requestedBy?.username || 'System'}` })
+            ]
+        });
     }
+});
+
+joki.on('queueEnd', (player) => {
+    const channel = client.channels.cache.get(player.textChannelId);
+    if (channel) {
+        channel.send('🎵 **Cola terminada:** Modo 24/7 activo. Me quedo en el canal esperando más pistas.');
+    }
+});
+
+joki.on('error', (player, error) => {
+    console.error('[Joki Error]:', error);
+});
+
+// ── Lista de Comandos Slash ──
+const commands = [
+    {
+        name: 'play',
+        description: '🎵 Reproduce una canción o URL',
+        options: [{ name: 'cancion', type: 3, description: 'Nombre o enlace', required: true }]
+    },
+    { name: 'skip',   description: '⏭ Salta a la siguiente canción' },
+    { name: 'stop',   description: '⏹ Detiene la música y limpia la lista' },
+    { name: 'queue',  description: '📋 Muestra la lista de reproducción' },
+    { name: 'np',     description: '🎶 Muestra la canción actual' }
 ];
 
-// Inicialización de Kazagumo para la abstracción de audio
-const kazagumo = new Kazagumo({
-    plugins: [],
-    defaultSearchEngine: 'youtube'
-}, new Connectors.DiscordJS(client), Nodes);
+// ── Registro de Comandos en Discord ──
+client.once('ready', async () => {
+    console.log(`✅ Conectado exitosamente como ${client.user.tag}`);
+    client.user.setActivity('Música Joki 🔊', { type: 2 });
 
-// SOLUCIÓN AL CRASH: Captura errores de los nodos para que no tumben el bot
-kazagumo.shoukaku.on('error', (name, error) => {
-    console.error(`[Lavalink] El nodo "${name}" reportó un error de conexión:`, error);
-});
-
-// Confirmación de inicio del bot
-client.on('ready', () => {
-    console.log(`[BOT] Conectado exitosamente como: ${client.user.tag}`);
-    client.user.setActivity('Música 24/7 🔊', { type: 2 });
-});
-
-// Manejo de eventos de reproducción de audio
-kazagumo.on('playerStart', (player, track) => {
-    const channel = client.channels.cache.get(player.textId);
-    if (channel) {
-        channel.send(`🔊 **Reproduciendo ahora:** \`${track.title}\` - Pedida en el canal.`);
+    const rest = new REST({ version: '10' }).setToken(TOKEN);
+    try {
+        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+        console.log('✅ Comandos de barra registrados globalmente');
+    } catch (e) {
+        console.error('Error registrando comandos:', e);
     }
 });
 
-// Sistema Mantenimiento 24/7 - Evita que el bot abandone el canal al terminar la lista
-kazagumo.on('queueEnd', (player) => {
-    // Se mantiene conectado permanentemente esperando más música
-});
+// ── Manejador de Interacciones ──
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
 
-kazagumo.on('playerError', (player, error) => {
-    console.error(`[Lavalink Error] En el reproductor del servidor ${player.guildId}:`, error);
-});
+    const { commandName, guildId, member, channel } = interaction;
 
-// Manejador de comandos basados en prefijo clásico
-client.on('messageCreate', async (message) => {
-    if (message.author.bot || !message.guild) return;
+    // Comando /play
+    if (commandName === 'play') {
+        const voiceChannel = member?.voice?.channel;
+        if (!voiceChannel) {
+            return interaction.reply({ content: '⚠️ Debes ingresar a un canal de voz primero.', ephemeral: true });
+        }
 
-    const args = message.content.split(/ +/);
-    const command = args.shift().toLowerCase();
-
-    // COMANDO !PLAY
-    if (command === '!play') {
-        const query = args.join(' ');
-        if (!query) return message.reply('❌ Especifica el nombre o URL de la pista.');
-
-        const voiceChannel = message.member.voice.channel;
-        if (!voiceChannel) return message.reply('❌ Necesitas ingresar a un canal de voz primero.');
+        const query = interaction.options.getString('cancion');
+        await interaction.deferReply();
 
         try {
-            const result = await kazagumo.search(query);
-            if (!result.tracks.length) return message.reply('❌ No se encontraron resultados válidos.');
-
-            // Crear o recuperar la instancia del reproductor de voz en el servidor
-            const player = await kazagumo.createPlayer({
-                guildId: message.guild.id,
-                textId: message.channel.id,
-                voiceId: voiceChannel.id,
+            // Crea o recupera el reproductor en el servidor actual
+            const player = joki.createPlayer({
+                guildId: guildId,
+                voiceChannelId: voiceChannel.id,
+                textChannelId: channel.id,
                 deaf: true
             });
 
-            if (result.type === 'PLAYLIST') {
-                for (const track of result.tracks) {
-                    player.queue.add(track);
-                }
-                message.reply(`📥 **Lista añadida:** \`${result.playlistName}\` con **${result.tracks.length}** pistas.`);
-            } else {
-                player.queue.add(result.tracks[0]);
-                message.reply(`➕ **Añadida a la cola:** \`${result.tracks[0].title}\``);
+            const result = await joki.search(query);
+            if (!result || !result.tracks.length) {
+                return interaction.editReply('❌ No se encontraron resultados válidos.');
             }
 
-            if (!player.playing && !player.paused) player.play();
+            if (result.type === 'PLAYLIST') {
+                for (const track of result.tracks) {
+                    track.requestedBy = interaction.user;
+                    player.queue.push(track);
+                }
+                interaction.editReply(`📥 **Lista añadida:** \`${result.playlistName}\` con **${result.tracks.length}** canciones.`);
+            } else {
+                const track = result.tracks[0];
+                track.requestedBy = interaction.user;
+                player.queue.push(track);
+                interaction.editReply(`➕ **Añadida:** \`${track.title}\``);
+            }
+
+            if (!player.playing) player.play();
 
         } catch (error) {
             console.error(error);
-            message.reply('❌ Error interno al procesar el audio del nodo.');
+            interaction.editReply('❌ Ocurrió un error al intentar procesar el audio.');
         }
+        return;
     }
 
-    // COMANDO !SKIP
-    if (command === '!skip') {
-        const player = kazagumo.players.get(message.guild.id);
-        if (!player) return message.reply('❌ No hay audio reproduciéndose en este momento.');
+    // Obtener reproductor activo
+    const player = joki.players.get(guildId);
+
+    if (commandName === 'skip') {
+        if (!player || !player.playing) return interaction.reply({ content: '❌ No hay música reproduciéndose.', ephemeral: true });
         player.skip();
-        return message.reply('⏭️ **Pista saltada.** Enrutando siguiente canción.');
+        return interaction.reply('⏭ **Pista saltada.**');
     }
 
-    // COMANDO !STOP
-    if (command === '!stop') {
-        const player = kazagumo.players.get(message.guild.id);
-        if (!player) return message.reply('❌ El bot no se encuentra activo en ningún canal.');
+    if (commandName === 'stop') {
+        if (!player) return interaction.reply({ content: '❌ El bot no está activo.', ephemeral: true });
         player.destroy();
-        return message.reply('🛑 **Desconectado:** Se limpió la cola y el bot abandonó el canal.');
+        return interaction.reply('🛑 **Reproducción detenida y cola vaciada.**');
     }
 
-    // COMANDO !QUEUE
-    if (command === '!queue') {
-        const player = kazagumo.players.get(message.guild.id);
-        if (!player || !player.queue.length) return message.reply('📭 La cola de reproducción está vacía.');
+    if (commandName === 'queue') {
+        if (!player || !player.queue.length) return interaction.reply({ content: '📭 La lista de reproducción está vacía.', ephemeral: true });
         
-        const current = player.queue.current ? `▶️ **Sonando:** ${player.queue.current.title}\n\n` : '';
-        const tracks = player.queue.slice(0, 10).map((t, i) => `**${i + 1}.** \`${t.title}\``).join('\n');
+        let desc = player.current ? `▶️ **Sonando:** [${player.current.title}](${player.current.url})\n\n` : '';
+        desc += player.queue.slice(0, 10).map((t, i) => `\`${i + 1}.\` [${t.title}](${t.url})`).join('\n');
         
-        return message.reply(`${current}📋 **Próximas pistas:**\n${tracks}${player.queue.length > 10 ? `\n... y ${player.queue.length - 10} más.` : ''}`);
+        return interaction.reply({
+            embeds: [
+                new EmbedBuilder()
+                    .setColor('#5865F2')
+                    .setTitle('📋 Lista de Espera')
+                    .setDescription(desc)
+            ]
+        });
+    }
+
+    if (commandName === 'np') {
+        if (!player || !player.current) return interaction.reply({ content: '❌ No hay nada sonando ahora.', ephemeral: true });
+        
+        return interaction.reply({
+            embeds: [
+                new EmbedBuilder()
+                    .setColor('#5865F2')
+                    .setTitle('🎶 Sonando Ahora mismo')
+                    .setDescription(`**[${player.current.title}](${player.current.url})**`)
+                    .setThumbnail(player.current.thumbnail || null)
+            ]
+        });
     }
 });
 
-// Conexión segura usando la variable de entorno DISCORD_TOKEN configurada en Render
-client.login(process.env.DISCORD_TOKEN);
+client.login(TOKEN);
