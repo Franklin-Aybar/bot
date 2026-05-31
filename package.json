@@ -1,0 +1,14 @@
+{
+  "name": "bot-chipeo-247",
+  "version": "1.0.0",
+  "description": "Bot de música 24/7 de alta fidelidad",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "kazagumo": "^3.0.3",
+    "shoukaku": "^4.0.0"
+  }
+}
