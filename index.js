@@ -50,7 +50,7 @@ kazagumo.on('playerStart', (player, track) => {
 
 // Sistema Mantenimiento 24/7 - Evita que el bot abandone el canal al terminar la lista
 kazagumo.on('queueEnd', (player) => {
-    // No hacemos nada para que el reproductor se mantenga conectado permanentemente
+    // Se mantiene conectado permanentemente esperando más música
 });
 
 kazagumo.on('playerError', (player, error) => {
@@ -130,6 +130,5 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// Autenticación del cliente
-const TOKEN = process.env.DISCORD_TOKEN || 'MTQzMzYyNTMxMTM599kwNzM0OA.GowTEI.fHueMMYQB1CNkUNWhaeGa4Tk-AE75ROx2Do_PE';
-client.login(TOKEN);
+// Conexión segura usando la variable de entorno DISCORD_TOKEN configurada en Render
+client.login(process.env.DISCORD_TOKEN);
