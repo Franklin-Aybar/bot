@@ -1,5 +1,6 @@
 const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes } = require('discord.js');
-const { Joki } = require('joki-music');
+const { DisTube } = require('distube');
+const { YouTubePlugin } = require('@distube/youtube');
 const express = require('express');
 
 const TOKEN = process.env.TOKEN;
@@ -7,7 +8,7 @@ const CLIENT_ID = process.env.CLIENT_ID;
 
 // ── Servidor Express para Render (Evita el Port Timeout) ──
 const app = express();
-app.get('/', (req, res) => res.send('✅ Joki Music Engine Online'));
+app.get('/', (req, res) => res.send('✅ Engine Online'));
 app.listen(process.env.PORT || 3000, () => console.log('✅ Servidor HTTP iniciado'));
 
 // ── Cliente de Discord ──
@@ -20,162 +21,135 @@ const client = new Client({
     ]
 });
 
-// ── Configuración de Joki 24/7 ──
-const joki = new Joki(client, {
-    leaveOnEmpty: false,     // No se sale si se van los usuarios
-    leaveOnFinish: false,    // No se sale si se acaba la lista de canciones
-    leaveOnStop: false,      // No se sale si detienen la música
-    defaultVolume: 100
+// ── Configuración DisTube 24/7 Total ──
+const distube = new DisTube(client, {
+    emitNewSongOnly: false,
+    leaveOnEmpty: false,     // 24/7: No se sale si el canal se queda vacío
+    leaveOnFinish: false,    // 24/7: No se sale si termina la cola de canciones
+    leaveOnStop: false,      // 24/7: No se sale si detienen la música con comandos
+    plugins: [new YouTubePlugin()]
 });
 
-// ── Eventos de Audio de Joki ──
-joki.on('trackStart', (player, track) => {
-    const channel = client.channels.cache.get(player.textChannelId);
-    if (channel) {
-        channel.send({
-            embeds: [
-                new EmbedBuilder()
-                    .setColor('#2ECC71')
-                    .setDescription(`🔊 **Reproduciendo ahora:** [${track.title}](${track.url})`)
-                    .setThumbnail(track.thumbnail || null)
-                    .setFooter({ text: `⏱ Duración: ${track.duration}  •  👤 Pedida por: ${track.requestedBy?.username || 'System'}` })
-            ]
-        });
-    }
+// ── Eventos de Audio ──
+distube.on('playSong', (queue, song) => {
+    queue.textChannel?.send({
+        embeds: [
+            new EmbedBuilder()
+                .setColor('#2ECC71')
+                .setDescription(`🔊 **Reproduciendo ahora:** [${song.name}](${song.url})`)
+                .setThumbnail(song.thumbnail ?? null)
+                .setFooter({ text: `⏱ Duración: ${song.formattedDuration ?? '?'}  •  👤 Pedida por: ${song.user?.username ?? 'Desconocido'}` })
+        ]
+    });
 });
 
-joki.on('queueEnd', (player) => {
-    const channel = client.channels.cache.get(player.textChannelId);
-    if (channel) {
-        channel.send('🎵 **Cola terminada:** Modo 24/7 activo. Me quedo en el canal esperando más pistas.');
-    }
+distube.on('addSong', (queue, song) => {
+    queue.textChannel?.send({
+        embeds: [
+            new EmbedBuilder()
+                .setColor('#3498DB')
+                .setDescription(`📋 **Añadida a la cola:** [${song.name}](${song.url})`)
+                .setThumbnail(song.thumbnail ?? null)
+                .setFooter({ text: `⏱ Lista posición: #${queue.songs.length}` })
+        ]
+    });
 });
 
-joki.on('error', (player, error) => {
-    console.error('[Joki Error]:', error);
+distube.on('finish', queue => {
+    queue.textChannel?.send('🎵 **Cola terminada:** Modo 24/7 activo. Me quedo en el canal de voz esperando más pistas.');
 });
 
-// ── Lista de Comandos Slash ──
+distube.on('error', (error, queue) => {
+    console.error('[DisTube Error]', error.message);
+});
+
+// ── Comandos Slash ──
 const commands = [
     {
         name: 'play',
         description: '🎵 Reproduce una canción o URL',
         options: [{ name: 'cancion', type: 3, description: 'Nombre o enlace', required: true }]
     },
-    { name: 'skip',   description: '⏭ Salta a la siguiente canción' },
+    { name: 'skip',   description: '⏭ Salta la canción actual' },
     { name: 'stop',   description: '⏹ Detiene la música y limpia la lista' },
     { name: 'queue',  description: '📋 Muestra la lista de reproducción' },
-    { name: 'np',     description: '🎶 Muestra la canción actual' }
+    { name: 'np',     description: '🎶 Muestra qué está sonando' }
 ];
 
-// ── Registro de Comandos en Discord ──
+// ── Conexión y Registro ──
 client.once('ready', async () => {
-    console.log(`✅ Conectado exitosamente como ${client.user.tag}`);
-    client.user.setActivity('Música Joki 🔊', { type: 2 });
+    console.log(`✅ Conectado como ${client.user.tag}`);
+    client.user.setActivity('Música Chipeo 🔊', { type: 2 });
 
     const rest = new REST({ version: '10' }).setToken(TOKEN);
     try {
         await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
         console.log('✅ Comandos de barra registrados globalmente');
     } catch (e) {
-        console.error('Error registrando comandos:', e);
+        console.error(e);
     }
 });
 
-// ── Manejador de Interacciones ──
+// ── Manejador de Comandos Slash ──
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
     const { commandName, guildId, member, channel } = interaction;
 
-    // Comando /play
     if (commandName === 'play') {
         const voiceChannel = member?.voice?.channel;
         if (!voiceChannel) {
-            return interaction.reply({ content: '⚠️ Debes ingresar a un canal de voz primero.', ephemeral: true });
+            return interaction.reply({ content: '⚠️ Entra a un canal de voz primero.', ephemeral: true });
         }
 
         const query = interaction.options.getString('cancion');
         await interaction.deferReply();
 
         try {
-            // Crea o recupera el reproductor en el servidor actual
-            const player = joki.createPlayer({
-                guildId: guildId,
-                voiceChannelId: voiceChannel.id,
-                textChannelId: channel.id,
-                deaf: true
+            await distube.play(voiceChannel, query, {
+                member,
+                textChannel: channel,
             });
-
-            const result = await joki.search(query);
-            if (!result || !result.tracks.length) {
-                return interaction.editReply('❌ No se encontraron resultados válidos.');
-            }
-
-            if (result.type === 'PLAYLIST') {
-                for (const track of result.tracks) {
-                    track.requestedBy = interaction.user;
-                    player.queue.push(track);
-                }
-                interaction.editReply(`📥 **Lista añadida:** \`${result.playlistName}\` con **${result.tracks.length}** canciones.`);
-            } else {
-                const track = result.tracks[0];
-                track.requestedBy = interaction.user;
-                player.queue.push(track);
-                interaction.editReply(`➕ **Añadida:** \`${track.title}\``);
-            }
-
-            if (!player.playing) player.play();
-
-        } catch (error) {
-            console.error(error);
-            interaction.editReply('❌ Ocurrió un error al intentar procesar el audio.');
+            await interaction.editReply('🎵 ¡Procesando pista!');
+        } catch (e) {
+            console.error(e);
+            await interaction.editReply('❌ No se pudo reproducir el audio.');
         }
         return;
     }
 
-    // Obtener reproductor activo
-    const player = joki.players.get(guildId);
+    const queue = distube.getQueue(guildId);
 
     if (commandName === 'skip') {
-        if (!player || !player.playing) return interaction.reply({ content: '❌ No hay música reproduciéndose.', ephemeral: true });
-        player.skip();
-        return interaction.reply('⏭ **Pista saltada.**');
+        if (!queue) return interaction.reply({ content: '❌ No hay música activa.', ephemeral: true });
+        try {
+            await queue.skip();
+            return interaction.reply('⏭ **Pista saltada.**');
+        } catch (e) {
+            return interaction.reply({ content: '❌ No hay más pistas en la cola.', ephemeral: true });
+        }
     }
 
     if (commandName === 'stop') {
-        if (!player) return interaction.reply({ content: '❌ El bot no está activo.', ephemeral: true });
-        player.destroy();
-        return interaction.reply('🛑 **Reproducción detenida y cola vaciada.**');
+        if (!queue) return interaction.reply({ content: '❌ No hay música activa.', ephemeral: true });
+        await queue.stop();
+        return interaction.reply('⏹ **Lista limpia y reproducción detenida.**');
     }
 
     if (commandName === 'queue') {
-        if (!player || !player.queue.length) return interaction.reply({ content: '📭 La lista de reproducción está vacía.', ephemeral: true });
-        
-        let desc = player.current ? `▶️ **Sonando:** [${player.current.title}](${player.current.url})\n\n` : '';
-        desc += player.queue.slice(0, 10).map((t, i) => `\`${i + 1}.\` [${t.title}](${t.url})`).join('\n');
-        
+        if (!queue || !queue.songs.length) return interaction.reply({ content: '📭 La cola está vacía.', ephemeral: true });
+        const songs = queue.songs;
+        let desc = `▶️ **Sonando:** [${songs[0].name}](${songs[0].url})\n\n`;
+        desc += songs.slice(1, 11).map((s, i) => `\`${i + 1}.\` [${s.name}](${s.url})`).join('\n');
         return interaction.reply({
-            embeds: [
-                new EmbedBuilder()
-                    .setColor('#5865F2')
-                    .setTitle('📋 Lista de Espera')
-                    .setDescription(desc)
-            ]
+            embeds: [new EmbedBuilder().setColor('#5865F2').setTitle('📋 Lista de Espera').setDescription(desc)]
         });
     }
 
     if (commandName === 'np') {
-        if (!player || !player.current) return interaction.reply({ content: '❌ No hay nada sonando ahora.', ephemeral: true });
-        
+        if (!queue || !queue.songs.length) return interaction.reply({ content: '❌ No hay nada sonando.', ephemeral: true });
         return interaction.reply({
-            embeds: [
-                new EmbedBuilder()
-                    .setColor('#5865F2')
-                    .setTitle('🎶 Sonando Ahora mismo')
-                    .setDescription(`**[${player.current.title}](${player.current.url})**`)
-                    .setThumbnail(player.current.thumbnail || null)
-            ]
+            embeds: [new EmbedBuilder().setColor('#5865F2').setTitle('🎶 Sonando Ahora').setDescription(`**[${queue.songs[0].name}](${queue.songs[0].url})**`)]
         });
     }
 });
