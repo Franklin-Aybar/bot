@@ -12,12 +12,12 @@ const client = new Client({
     ]
 });
 
-// Nodos Lavalink públicos estables de respaldo para streaming continuo sin lag
+// Lista de Nodos Lavalink públicos actualizados
 const Nodes = [
     {
         name: 'Node-Primary',
-        url: 'lavalink.iquis.top:443',
-        auth: 'lavalink',
+        url: 'lavalink.cor0.gay:443',
+        auth: 'youshallnotpass',
         secure: true
     },
     {
@@ -33,6 +33,11 @@ const kazagumo = new Kazagumo({
     plugins: [],
     defaultSearchEngine: 'youtube'
 }, new Connectors.DiscordJS(client), Nodes);
+
+// SOLUCIÓN AL CRASH: Captura errores de los nodos para que no tumben el bot
+kazagumo.shoukaku.on('error', (name, error) => {
+    console.error(`[Lavalink] El nodo "${name}" reportó un error de conexión:`, error);
+});
 
 // Confirmación de inicio del bot
 client.on('ready', () => {
