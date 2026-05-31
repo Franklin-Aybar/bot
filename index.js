@@ -50,10 +50,7 @@ kazagumo.on('playerStart', (player, track) => {
 
 // Sistema Mantenimiento 24/7 - Evita que el bot abandone el canal al terminar la lista
 kazagumo.on('queueEnd', (player) => {
-    const channel = client.channels.cache.get(player.textId);
-    if (channel) {
-        channel.send('🎵 **Cola terminada:** Modo 24/7 activo. Me mantengo en el canal de voz esperando nuevas pistas.');
-    }
+    // No hacemos nada para que el reproductor se mantenga conectado permanentemente
 });
 
 kazagumo.on('playerError', (player, error) => {
@@ -133,7 +130,6 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// Reemplaza esto con el Token de tu bot si lo pruebas en tu PC, 
-// o usa variables de entorno si lo subes a Render.
-const TOKEN = process.env.DISCORD_TOKEN || 'TU_TOKEN_DE_DISCORD_AQUI';
+// Autenticación del cliente
+const TOKEN = process.env.DISCORD_TOKEN || 'MTQzMzYyNTMxMTM599kwNzM0OA.GowTEI.fHueMMYQB1CNkUNWhaeGa4Tk-AE75ROx2Do_PE';
 client.login(TOKEN);
