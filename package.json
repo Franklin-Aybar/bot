@@ -1,14 +1,15 @@
 {
-  "name": "bot-chipeo-joki",
+  "name": "bot-chipeo-distube",
   "version": "1.0.0",
-  "description": "Bot de música 24/7 con Joki",
+  "description": "Bot de música 24/7 con DisTube v5",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1",
-    "joki-music": "^1.1.5",
+    "distube": "^5.0.3",
+    "@distube/youtube": "^1.0.1",
     "express": "^4.19.2"
   }
 }
