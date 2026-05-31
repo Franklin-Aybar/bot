@@ -1,7 +1,6 @@
 {
   "name": "chipeo-music-bot",
   "version": "1.0.0",
-  "description": "Bot de música para Discord - YouTube y Spotify",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
